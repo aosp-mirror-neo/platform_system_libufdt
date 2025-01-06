@@ -290,6 +290,12 @@ int ufdt_overlay_do_fixups(struct ufdt *main_tree, struct ufdt *overlay_tree) {
 
     const char *fixups_paths = ufdt_node_get_fdt_prop_data(fixups, &len);
 
+    if (len == 0 || !fixups_paths || fixups_paths[len - 1] != 0) {
+      dto_error("Format error for %s: fixups are not null terminated\n",
+                ufdt_node_name(fixups));
+      return -1;
+    }
+
     if (ufdt_do_one_fixup(overlay_tree, fixups_paths, len, phandle) < 0) {
       dto_error("Failed one fixup in ufdt_do_one_fixup\n");
       return -1;
@@ -723,10 +729,10 @@ int ufdt_apply_multioverlay(struct fdt_header *main_fdt_header,
   ufdt_node_pool_construct(&pool);
   struct ufdt *main_tree = ufdt_from_fdt(main_fdt_header, result_size, &pool);
 
-  for (int i = 0; i < overlays_count; i++) {
+  for (size_t i = 0; i < overlays_count; i++) {
     struct fdt_header *current_overlay = overlays[i];
     if (fdt_check_header(current_overlay) != 0) {
-      dto_error("Failed to parse %dth overlay header\n", i);
+      dto_error("Failed to parse %zuth overlay header\n", i);
       goto error;
     }
 
