@@ -66,7 +66,8 @@ echo "Creating dtbo image with mkdtboimg"
     "${OUTDIR}/board1v1_1.dts.dtb" --id=0xddccbbaa --rev=0x01000100 \
     "${OUTDIR}/board2v1.dts.dtb" --id=0x200 --rev=0x201 \
     "${OUTDIR}/board1v1.dts.dtb" --flags=0xd01 --custom0=0xdef \
-    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd02 --custom0=3567 > /dev/null
+    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd02 --custom0=3567 \
+    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd03 > /dev/null
 
 echo "Creating dtbo image with ${PYCONFIG} config file"
 ../src/mkdtboimg.py cfg_create ${MKDTBOIMG_OUTCFG}/create.img ${PYCONFIG} --dtb-dir "${OUTDIR}"
