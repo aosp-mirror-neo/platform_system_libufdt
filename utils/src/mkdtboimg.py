@@ -22,6 +22,7 @@ import fnmatch
 import os
 import struct
 import zlib
+import lz4.frame
 from array import array
 from collections import namedtuple
 from sys import stdout
@@ -32,6 +33,7 @@ class CompressionFormat(object):
     NO_COMPRESSION = 0x00
     ZLIB_COMPRESSION = 0x01
     GZIP_COMPRESSION = 0x02
+    LZ4_COMPRESSION = 0x03
 
 class DtEntry(object):
     """Provides individual DT image file arguments to be added to a DTBO.
@@ -461,6 +463,7 @@ class Dtbo(object):
             CompressionFormat.NO_COMPRESSION: None,
             CompressionFormat.ZLIB_COMPRESSION: compress_zlib,
             CompressionFormat.GZIP_COMPRESSION: compress_gzip,
+            CompressionFormat.LZ4_COMPRESSION: None,
         }
 
         if compression_format not in compression_obj_dict:
@@ -468,6 +471,9 @@ class Dtbo(object):
 
         if compression_format is CompressionFormat.NO_COMPRESSION:
             dt_entry = dt_entry_file.read()
+        elif compression_format is CompressionFormat.LZ4_COMPRESSION:
+            dt_entry_file.seek(0)
+            dt_entry = lz4.frame.compress(dt_entry_file.read(), block_linked = False)
         else:
             compression_object = compression_obj_dict[compression_format]
             dt_entry_file.seek(0)
@@ -550,6 +556,8 @@ class Dtbo(object):
             if (compression_format == CompressionFormat.ZLIB_COMPRESSION or
                 compression_format == CompressionFormat.GZIP_COMPRESSION):
                 fout.write(zlib.decompress(self.__file.read(size), self._ZLIB_DECOMPRESSION_WBITS))
+            elif compression_format == CompressionFormat.LZ4_COMPRESSION:
+                fout.write(lz4.frame.decompress(self.__file.read(size)))
             else:
                 raise ValueError("Unknown compression format detected")
         else:
