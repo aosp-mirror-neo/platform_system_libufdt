@@ -369,6 +369,13 @@ class Dtbo(object):
                                         self.__file.read(self.__metadata_size))
         self._read_dt_entries_from_metadata()
 
+    def _write_padding_bytes(self):
+        """Append padding bytes to align DTB/DTBO img to the next page size"""
+        padding_size = (self.page_size - (self.total_size % self.page_size)) % self.page_size
+        if padding_size:
+            padding_data = b'\x00' * padding_size
+            self.__file.write(padding_data)
+
     def _find_dt_entry_with_same_file(self, dt_entry):
         """Finds DT Entry that has identical backing DT file.
 
@@ -595,6 +602,7 @@ class Dtbo(object):
         self.__file.seek(0)
         self.__file.write(self.__metadata)
         self.__file.write(dt_entry_buf)
+        self._write_padding_bytes()
         self.__file.flush()
 
 
