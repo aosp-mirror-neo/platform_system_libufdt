@@ -21,8 +21,8 @@ import argparse
 import fnmatch
 import os
 import struct
+import subprocess
 import zlib
-import lz4.frame
 from array import array
 from collections import namedtuple
 from sys import stdout
@@ -473,7 +473,13 @@ class Dtbo(object):
             dt_entry = dt_entry_file.read()
         elif compression_format is CompressionFormat.LZ4_COMPRESSION:
             dt_entry_file.seek(0)
-            dt_entry = lz4.frame.compress(dt_entry_file.read(), block_linked = False)
+            compression_cmd = ['lz4', '-12', '--favor-decSpeed']
+            result = subprocess.run(compression_cmd, check=True,
+                                    input=dt_entry_file.read(), capture_output=True)
+            if result.stderr:
+                dt_entry = None
+            else:
+                dt_entry = result.stdout
         else:
             compression_object = compression_obj_dict[compression_format]
             dt_entry_file.seek(0)
@@ -557,7 +563,11 @@ class Dtbo(object):
                 compression_format == CompressionFormat.GZIP_COMPRESSION):
                 fout.write(zlib.decompress(self.__file.read(size), self._ZLIB_DECOMPRESSION_WBITS))
             elif compression_format == CompressionFormat.LZ4_COMPRESSION:
-                fout.write(lz4.frame.decompress(self.__file.read(size)))
+                decompression_cmd = ['lz4', '-d', '-c']
+                result = subprocess.run(decompression_cmd, check=False,
+                                        input=self.__file.read(size), capture_output=True)
+                if not result.stderr:
+                    fout.write(result.stdout)
             else:
                 raise ValueError("Unknown compression format detected")
         else:
