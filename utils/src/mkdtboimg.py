@@ -690,7 +690,11 @@ def parse_config_option(line, is_global, dt_keys, global_key_types):
     key, value = (x.strip() for x in line.split('='))
     if is_global and key in global_key_types:
         if global_key_types[key] is int:
-            value = int(value)
+            if value.startswith('0x') or value.startswith('0X'):
+                base = 16
+            else:
+                base = 10
+            value = int(value, base)
     elif key not in dt_keys:
         raise ValueError('Invalid option (%s) in configuration file' % key)
 
