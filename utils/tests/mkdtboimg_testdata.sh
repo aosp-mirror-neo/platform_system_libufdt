@@ -61,11 +61,13 @@ mkdtimg create ${MKDTIMG_OUT}/create.img --page_size=4096 --id=0x100 --version=1
 
 echo "Creating dtbo image with mkdtboimg"
 ../src/mkdtboimg.py create  ${MKDTBOIMG_OUTCREATE}/create.img --page_size=4096 \
-    --id=0x100 --rev=0x100 --flags=0xabc0 --version=1 "${OUTDIR}/board1v1.dts.dtb" \
+    --id=0x100 --rev=0x100 --flags=0xabc0 --version=1 --custom0=0xabc \
+    "${OUTDIR}/board1v1.dts.dtb" \
     "${OUTDIR}/board1v1_1.dts.dtb" --id=0xddccbbaa --rev=0x01000100 \
     "${OUTDIR}/board2v1.dts.dtb" --id=0x200 --rev=0x201 \
-    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd01 \
-    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd02 > /dev/null
+    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd01 --custom0=0xdef \
+    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd02 --custom0=3567 \
+    "${OUTDIR}/board1v1.dts.dtb" --flags=0xd03 > /dev/null
 
 echo "Creating dtbo image with ${PYCONFIG} config file"
 ../src/mkdtboimg.py cfg_create ${MKDTBOIMG_OUTCFG}/create.img ${PYCONFIG} --dtb-dir "${OUTDIR}"
@@ -105,3 +107,21 @@ do
     echo "diff $x vs ${MKDTBOIMG_OUTCFG}/$file"
     diff $x ${MKDTBOIMG_OUTCFG}/$file
 done
+echo "=========================================================================================="
+echo "Testing image size created by 'create' 'mkdtboimg.py'"
+echo "=========================================================================================="
+create_img_size=$(stat -c %s "${MKDTBOIMG_OUTCREATE}/create.img")
+if (( create_img_size % 4096 == 0 )); then
+    echo "Size of ${MKDTBOIMG_OUTCREATE}/create.img is aligned to page_size 4096"
+else
+    echo "ERROR: Size of ${MKDTBOIMG_OUTCREATE}/create.img is not aligned to page_size 4096"
+fi
+echo "=========================================================================================="
+echo "Testing image size created by 'cfg_create' 'mkdtboimg.py'"
+echo "=========================================================================================="
+cfg_img_size=$(stat -c %s "${MKDTBOIMG_OUTCFG}/create.img")
+if (( cfg_img_size % 4096 == 0 )); then
+    echo "Size of ${MKDTBOIMG_OUTCFG}/create.img is aligned to page_size 4096"
+else
+    echo "ERROR: Size of ${MKDTBOIMG_OUTCFG}/create.img is not aligned to page_size 4096"
+fi
