@@ -28,7 +28,7 @@ from collections import namedtuple
 from contextlib import ExitStack
 from sys import stdout
 
-MAX_CUSTOM_FIELDS = 4
+MAX_CUSTOM_FIELDS = 11
 
 class CompressionFormat(object):
     """Enum representing DT compression format for a DT entry.
@@ -53,6 +53,7 @@ class DtEntry(object):
         num_custom_fields = {
             0: 4,
             1: 3,
+            2: MAX_CUSTOM_FIELDS,
         }
         num = num_custom_fields.get(version)
         if num is None:
@@ -71,7 +72,7 @@ class DtEntry(object):
             A tuple of required keys.
         """
         keys = ['dt_file', 'dt_size', 'dt_offset', 'id', 'rev']
-        if version == 1:
+        if version in (1, 2):
             keys.append('flags')
         num_custom = cls.get_num_custom_fields(version)
         keys.extend([f'custom{i}' for i in range(num_custom)])
@@ -128,7 +129,7 @@ class DtEntry(object):
         self.__dt_size = kwargs['dt_size']
         self.__id = self.__get_number_or_prop(kwargs['id'])
         self.__rev = self.__get_number_or_prop(kwargs['rev'])
-        if self.__version == 1:
+        if self.__version in (1, 2):
             self.__flags = self.__get_number_or_prop(kwargs['flags'])
 
         num_custom = self.get_num_custom_fields(self.__version)
@@ -143,7 +144,7 @@ class DtEntry(object):
         sb.append(f'{"dt_offset":>20} = {self.__dt_offset:d}')
         sb.append(f'{"id":>20} = {self.__id:08x}')
         sb.append(f'{"rev":>20} = {self.__rev:08x}')
-        if self.__version == 1:
+        if self.__version in (1, 2):
             sb.append(f'{"flags":>20} = {self.__flags:08x}')
         for i, val in enumerate(self.__custom):
             key = f"custom[{i}]"
@@ -213,7 +214,8 @@ class Dtbo(object):
         _ACPIO_MAGIC: Advanced Configuration and Power Interface table header
                       magic.
         _DT_TABLE_HEADER_SIZE: Size of Device tree table header.
-        _DT_ENTRY_HEADER_SIZE: Size of Device tree entry header within a DTBO.
+        _DT_ENTRY_HEADER_SIZE: Size of v0/v1 Device tree entry header.
+        _DT_ENTRY_HEADER_V2_SIZE: Size of v2 Device tree entry header.
         _BYTES_PER_INT: Number of bytes per 32-bit integer.
         _GZIP_COMPRESSION_WBITS: Argument 'wbits' for gzip compression
         _ZLIB_DECOMPRESSION_WBITS: Argument 'wbits' for zlib/gzip compression
@@ -223,9 +225,19 @@ class Dtbo(object):
     _ACPIO_MAGIC = 0x41435049
     _DT_TABLE_HEADER_SIZE = struct.calcsize('>8I')
     _DT_ENTRY_HEADER_SIZE = struct.calcsize('>8I')
+    _DT_ENTRY_HEADER_V2_SIZE = struct.calcsize('>16I')
     _BYTES_PER_INT = 4
     _GZIP_COMPRESSION_WBITS = 31
     _ZLIB_DECOMPRESSION_WBITS = 47
+
+    @classmethod
+    def _get_dt_entry_size(cls, version):
+        if version in (0, 1):
+            return cls._DT_ENTRY_HEADER_SIZE
+        elif version == 2:
+            return cls._DT_ENTRY_HEADER_V2_SIZE
+        else:
+            raise ValueError(f'Unsupported version: {version}')
 
     def _update_dt_table_header(self):
         """Converts header entries into binary data for DTBO header.
@@ -261,7 +273,13 @@ class Dtbo(object):
                              dt_entry.size, dt_entry.dt_offset,
                              dt_entry.image_id, dt_entry.rev,
                              dt_entry.flags, *dt_entry.custom)
-
+        elif self.version == 2:
+            struct.pack_into('>16I', self.__metadata, metadata_offset,
+                             dt_entry.size, dt_entry.dt_offset,
+                             dt_entry.image_id, dt_entry.rev,
+                             dt_entry.flags, *dt_entry.custom)
+        else:
+            raise ValueError(f'Unsupported version for packing: {self.version}')
 
     def _update_metadata(self):
         """Updates the DTBO metadata.
@@ -300,7 +318,7 @@ class Dtbo(object):
             raise ValueError(f'Invalid header size ({self.header_size:d}) in '
                              'DTBO/ACPIO file')
 
-        if self.dt_entry_size != self._DT_ENTRY_HEADER_SIZE:
+        if self.dt_entry_size != self._get_dt_entry_size(self.version):
             raise ValueError(
                 f'Invalid DT entry header size ({self.dt_entry_size:d}) in '
                 'DTBO/ACPIO file')
@@ -310,7 +328,7 @@ class Dtbo(object):
 
         Unpack and read the DTBO DT entry headers from the internal buffer.
         The buffer size must exactly be equal to _DT_TABLE_HEADER_SIZE +
-        (_DT_ENTRY_HEADER_SIZE * dt_entry_count). The method raises exception
+        (dt_entry_size * dt_entry_count). The method raises exception
         if DT entries have already been set for this object.
         """
 
@@ -420,11 +438,11 @@ class Dtbo(object):
                 self.magic = self._DTBO_MAGIC
             self.total_size = self._DT_TABLE_HEADER_SIZE
             self.header_size = self._DT_TABLE_HEADER_SIZE
-            self.dt_entry_size = self._DT_ENTRY_HEADER_SIZE
+            self.version = version
+            self.dt_entry_size = self._get_dt_entry_size(self.version)
             self.dt_entry_count = 0
             self.dt_entries_offset = self._DT_TABLE_HEADER_SIZE
             self.page_size = page_size
-            self.version = version
             self.__metadata_size = self._DT_TABLE_HEADER_SIZE
         else:
             self._read_dtbo_image()
