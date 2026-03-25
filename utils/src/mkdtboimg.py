@@ -28,6 +28,8 @@ from collections import namedtuple
 from contextlib import ExitStack
 from sys import stdout
 
+MAX_CUSTOM_FIELDS = 4
+
 class CompressionFormat(object):
     """Enum representing DT compression format for a DT entry.
     """
@@ -40,20 +42,23 @@ class DtEntry(object):
     """Provides individual DT image file arguments to be added to a DTBO.
 
     Attributes:
-        REQUIRED_KEYS_V0: 'keys' needed to be present in the dictionary passed
-            to instantiate an object of this class when a DTBO header of
-            version 0 is used.
-        REQUIRED_KEYS_V1: 'keys' needed to be present in the dictionary passed
-            to instantiate an object of this class when a DTBO header of
-            version 1 is used.
         COMPRESSION_FORMAT_MASK: Mask to retrieve compression info for DT entry
             from flags field when a DTBO header of version 1 is used.
     """
     COMPRESSION_FORMAT_MASK = 0x0f
-    REQUIRED_KEYS_V0 = ('dt_file', 'dt_size', 'dt_offset', 'id', 'rev',
-                        'custom0', 'custom1', 'custom2', 'custom3')
-    REQUIRED_KEYS_V1 = ('dt_file', 'dt_size', 'dt_offset', 'id', 'rev',
-                        'flags', 'custom0', 'custom1', 'custom2')
+
+    @classmethod
+    def get_num_custom_fields(cls, version):
+        """Returns the number of custom fields for a given DTBO version."""
+        num_custom_fields = {
+            0: 4,
+            1: 3,
+        }
+        num = num_custom_fields.get(version)
+        if num is None:
+            raise ValueError(f'Unsupported version: {version}')
+        assert num <= MAX_CUSTOM_FIELDS
+        return num
 
     @classmethod
     def get_required_keys(cls, version):
@@ -65,12 +70,12 @@ class DtEntry(object):
         Returns:
             A tuple of required keys.
         """
-        if version == 0:
-            return cls.REQUIRED_KEYS_V0
-        elif version == 1:
-            return cls.REQUIRED_KEYS_V1
-        else:
-            raise ValueError(f'Unsupported version: {version}')
+        keys = ['dt_file', 'dt_size', 'dt_offset', 'id', 'rev']
+        if version == 1:
+            keys.append('flags')
+        num_custom = cls.get_num_custom_fields(version)
+        keys.extend([f'custom{i}' for i in range(num_custom)])
+        return tuple(keys)
 
     @staticmethod
     def __get_number_or_prop(arg):
@@ -125,11 +130,12 @@ class DtEntry(object):
         self.__rev = self.__get_number_or_prop(kwargs['rev'])
         if self.__version == 1:
             self.__flags = self.__get_number_or_prop(kwargs['flags'])
-        self.__custom0 = self.__get_number_or_prop(kwargs['custom0'])
-        self.__custom1 = self.__get_number_or_prop(kwargs['custom1'])
-        self.__custom2 = self.__get_number_or_prop(kwargs['custom2'])
-        if self.__version == 0:
-            self.__custom3 = self.__get_number_or_prop(kwargs['custom3'])
+
+        num_custom = self.get_num_custom_fields(self.__version)
+        self.__custom = tuple(
+            self.__get_number_or_prop(kwargs[f'custom{i}'])
+            for i in range(num_custom)
+        )
 
     def __str__(self):
         sb = []
@@ -139,11 +145,9 @@ class DtEntry(object):
         sb.append(f'{"rev":>20} = {self.__rev:08x}')
         if self.__version == 1:
             sb.append(f'{"flags":>20} = {self.__flags:08x}')
-        sb.append(f'{"custom[0]":>20} = {self.__custom0:08x}')
-        sb.append(f'{"custom[1]":>20} = {self.__custom1:08x}')
-        sb.append(f'{"custom[2]":>20} = {self.__custom2:08x}')
-        if self.__version == 0:
-            sb.append(f'{"custom[3]":>20} = {self.__custom3:08x}')
+        for i, val in enumerate(self.__custom):
+            key = f"custom[{i}]"
+            sb.append(f'{key:>20} = {val:08x}')
         return '\n'.join(sb)
 
     def compression_info(self):
@@ -196,24 +200,9 @@ class DtEntry(object):
         return self.__flags
 
     @property
-    def custom0(self):
-        """int: DT entry _custom0 for this DT image."""
-        return self.__custom0
-
-    @property
-    def custom1(self):
-        """int: DT entry _custom1 for this DT image."""
-        return self.__custom1
-
-    @property
-    def custom2(self):
-        """int: DT entry custom2 for this DT image."""
-        return self.__custom2
-
-    @property
-    def custom3(self):
-        """int: DT entry custom3 for this DT image."""
-        return self.__custom3
+    def custom(self):
+        """tuple of int: DT entry custom fields for this DT image."""
+        return self.__custom
 
 class Dtbo(object):
     """Provides parser, reader, writer for dumping and creating Device Tree Blob
@@ -266,14 +255,12 @@ class Dtbo(object):
             struct.pack_into('>8I', self.__metadata, metadata_offset,
                              dt_entry.size, dt_entry.dt_offset,
                              dt_entry.image_id, dt_entry.rev,
-                             dt_entry.custom0, dt_entry.custom1,
-                             dt_entry.custom2, dt_entry.custom3)
+                             *dt_entry.custom)
         elif self.version == 1:
             struct.pack_into('>8I', self.__metadata, metadata_offset,
                              dt_entry.size, dt_entry.dt_offset,
                              dt_entry.image_id, dt_entry.rev,
-                             dt_entry.flags, dt_entry.custom0,
-                             dt_entry.custom1, dt_entry.custom2)
+                             dt_entry.flags, *dt_entry.custom)
 
 
     def _update_metadata(self):
@@ -651,18 +638,10 @@ def parse_dt_entry(global_args, arglist):
     parser.add_argument('--flags', type=str, dest='flags',
                         action='store',
                         default=global_args.global_flags)
-    parser.add_argument('--custom0', type=str, dest='custom0',
-                        action='store',
-                        default=global_args.global_custom0)
-    parser.add_argument('--custom1', type=str, dest='custom1',
-                        action='store',
-                        default=global_args.global_custom1)
-    parser.add_argument('--custom2', type=str, dest='custom2',
-                        action='store',
-                        default=global_args.global_custom2)
-    parser.add_argument('--custom3', type=str, dest='custom3',
-                        action='store',
-                        default=global_args.global_custom3)
+    for i in range(MAX_CUSTOM_FIELDS):
+        parser.add_argument(f'--custom{i}', type=str, dest=f'custom{i}',
+                            action='store',
+                            default=getattr(global_args, f'global_custom{i}'))
     return parser.parse_args(arglist)
 
 
@@ -837,14 +816,9 @@ def parse_create_args(arg_list):
                         action='store', default='0')
     parser.add_argument('--flags', type=str, dest='global_flags',
                         action='store', default='0')
-    parser.add_argument('--custom0', type=str, dest='global_custom0',
-                        action='store', default='0')
-    parser.add_argument('--custom1', type=str, dest='global_custom1',
-                        action='store', default='0')
-    parser.add_argument('--custom2', type=str, dest='global_custom2',
-                        action='store', default='0')
-    parser.add_argument('--custom3', type=str, dest='global_custom3',
-                        action='store', default='0')
+    for i in range(MAX_CUSTOM_FIELDS):
+        parser.add_argument(f'--custom{i}', type=str, dest=f'global_custom{i}',
+                            action='store', default='0')
     args = parser.parse_args(argv)
     return args, remainder
 
@@ -938,8 +912,8 @@ def create_dtbo_image_from_config(fout, argv):
     if not args.conf_file:
         raise ValueError('Configuration file must be provided')
 
-    _DT_KEYS = ('id', 'rev', 'flags', 'custom0', 'custom1', 'custom2',
-                'custom3')
+    _DT_KEYS = (('id', 'rev', 'flags') +
+                tuple(f'custom{i}' for i in range(MAX_CUSTOM_FIELDS)))
     _GLOBAL_KEY_TYPES = {'dt_type': str, 'page_size': int, 'version': int}
 
     global_args, dt_args = parse_config_file(args.conf_file,
@@ -1022,10 +996,9 @@ def print_create_usage(progname):
               'in dt_table_entry. Default: 0')
     sb.append('      --rev=<number>')
     sb.append('      --flags=<number>')
-    sb.append('      --custom0=<number>')
-    sb.append('      --custom1=<number>')
-    sb.append('      --custom2=<number>\n')
-    sb.append('      --custom3=<number>\n')
+    for i in range(MAX_CUSTOM_FIELDS):
+        sb.append(f'      --custom{i}=<number>')
+    sb.append('\n')
 
     sb.append('      The value could be a number or a DT node path.')
     sb.append('      <number> could be a 32-bits digit or hex value, ex. '
