@@ -55,6 +55,23 @@ class DtEntry(object):
     REQUIRED_KEYS_V1 = ('dt_file', 'dt_size', 'dt_offset', 'id', 'rev',
                         'flags', 'custom0', 'custom1', 'custom2')
 
+    @classmethod
+    def get_required_keys(cls, version):
+        """Returns the required keys for a given DTBO version.
+
+        Args:
+            version: The DTBO version.
+
+        Returns:
+            A tuple of required keys.
+        """
+        if version == 0:
+            return cls.REQUIRED_KEYS_V0
+        elif version == 1:
+            return cls.REQUIRED_KEYS_V1
+        else:
+            raise ValueError(f'Unsupported version: {version}')
+
     @staticmethod
     def __get_number_or_prop(arg):
         """Converts string to integer or reads the property from DT image.
@@ -93,11 +110,7 @@ class DtEntry(object):
         """
 
         self.__version = kwargs['version']
-        required_keys = None
-        if self.__version == 0:
-            required_keys = self.REQUIRED_KEYS_V0
-        elif self.__version == 1:
-            required_keys = self.REQUIRED_KEYS_V1
+        required_keys = self.get_required_keys(self.__version)
 
         missing_keys = set(required_keys) - set(kwargs)
         if missing_keys:
@@ -328,12 +341,8 @@ class Dtbo(object):
                                              self._DT_ENTRY_HEADER_INTS]
             params['dt_size'] = dt_table_entry[0]
             params['dt_offset'] = dt_table_entry[1]
+            required_keys = DtEntry.get_required_keys(self.version)
             for j in range(2, self._DT_ENTRY_HEADER_INTS):
-                required_keys = None
-                if self.version == 0:
-                    required_keys = DtEntry.REQUIRED_KEYS_V0
-                elif self.version == 1:
-                    required_keys = DtEntry.REQUIRED_KEYS_V1
                 params[required_keys[j + 1]] = str(dt_table_entry[j])
             dt_entry = DtEntry(**params)
             self.__dt_entries.append(dt_entry)
