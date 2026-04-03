@@ -224,9 +224,8 @@ class Dtbo(object):
         _ACPIO_MAGIC: Advanced Configuration and Power Interface table header
                       magic.
         _DT_TABLE_HEADER_SIZE: Size of Device tree table header.
-        _DT_TABLE_HEADER_INTS: Number of integers in DT table header.
         _DT_ENTRY_HEADER_SIZE: Size of Device tree entry header within a DTBO.
-        _DT_ENTRY_HEADER_INTS: Number of integers in DT entry header.
+        _BYTES_PER_INT: Number of bytes per 32-bit integer.
         _GZIP_COMPRESSION_WBITS: Argument 'wbits' for gzip compression
         _ZLIB_DECOMPRESSION_WBITS: Argument 'wbits' for zlib/gzip compression
     """
@@ -234,9 +233,8 @@ class Dtbo(object):
     _DTBO_MAGIC = 0xd7b7ab1e
     _ACPIO_MAGIC = 0x41435049
     _DT_TABLE_HEADER_SIZE = struct.calcsize('>8I')
-    _DT_TABLE_HEADER_INTS = 8
     _DT_ENTRY_HEADER_SIZE = struct.calcsize('>8I')
-    _DT_ENTRY_HEADER_INTS = 8
+    _BYTES_PER_INT = 4
     _GZIP_COMPRESSION_WBITS = 31
     _ZLIB_DECOMPRESSION_WBITS = 47
 
@@ -332,21 +330,24 @@ class Dtbo(object):
         if self.__dt_entries:
             raise ValueError('DTBO DT entries can be added only once')
 
-        offset = self.dt_entries_offset // 4
+        offset = self.dt_entries_offset // self._BYTES_PER_INT
         params = {}
         params['version'] = self.version
         params['dt_file'] = None
+
+        assert self.dt_entry_size % self._BYTES_PER_INT == 0
+        dt_entry_ints = self.dt_entry_size // self._BYTES_PER_INT
+
         for _ in range(0, self.dt_entry_count):
-            dt_table_entry = self.__metadata[offset:offset +
-                                             self._DT_ENTRY_HEADER_INTS]
+            dt_table_entry = self.__metadata[offset:offset + dt_entry_ints]
             params['dt_size'] = dt_table_entry[0]
             params['dt_offset'] = dt_table_entry[1]
             required_keys = DtEntry.get_required_keys(self.version)
-            for j in range(2, self._DT_ENTRY_HEADER_INTS):
+            for j in range(2, dt_entry_ints):
                 params[required_keys[j + 1]] = str(dt_table_entry[j])
             dt_entry = DtEntry(**params)
             self.__dt_entries.append(dt_entry)
-            offset += self._DT_ENTRY_HEADER_INTS
+            offset += dt_entry_ints
 
     def _read_dtbo_image(self):
         """Parse the input file and instantiate this object."""
@@ -367,11 +368,15 @@ class Dtbo(object):
                 f'Invalid or truncated DTBO file of size {file_size:d} '
                 f'expected {self.__metadata_size:d}')
 
-        num_ints = (self._DT_TABLE_HEADER_INTS +
-                    self.dt_entry_count * self._DT_ENTRY_HEADER_INTS)
+        assert self._DT_TABLE_HEADER_SIZE % self._BYTES_PER_INT == 0
+        dt_header_ints = self._DT_TABLE_HEADER_SIZE // self._BYTES_PER_INT
+        assert self.dt_entry_size % self._BYTES_PER_INT == 0
+        dt_entry_ints = self.dt_entry_size // self._BYTES_PER_INT
+
+        num_ints = dt_header_ints + self.dt_entry_count * dt_entry_ints
         if self.dt_entries_offset > self._DT_TABLE_HEADER_SIZE:
-            num_ints += (
-                self.dt_entries_offset - self._DT_TABLE_HEADER_SIZE) // 4
+            num_ints += ((self.dt_entries_offset - self._DT_TABLE_HEADER_SIZE)
+                         // self._BYTES_PER_INT)
         format_str = '>' + str(num_ints) + 'I'
         self.__file.seek(0)
         self.__metadata = struct.unpack(format_str,
