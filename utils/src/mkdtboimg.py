@@ -390,7 +390,9 @@ class Dtbo(object):
 
     def _write_padding_bytes(self):
         """Append padding bytes to align DTB/DTBO img to the next page size"""
-        padding_size = (self.page_size - (self.total_size % self.page_size)) % self.page_size
+        padding_size = (
+            self.page_size - (self.total_size % self.page_size)
+        ) % self.page_size
         if padding_size:
             padding_data = b'\x00' * padding_size
             self.__file.write(padding_data)
