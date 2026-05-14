@@ -149,3 +149,21 @@ if (( cfg_img_size % 4096 == 0 )); then
 else
     echo "ERROR: Size of ${MKDTBOIMG_OUTCFG}/create.img is not aligned to page_size 4096"
 fi
+echo "=========================================================================================="
+echo "Testing image size created by 'create' (v2) 'mkdtboimg.py'"
+echo "=========================================================================================="
+create_v2_img_size=$(stat -c %s "${MKDTBOIMG_OUTCREATE_V2}/create.img")
+if (( create_v2_img_size % 4096 == 0 )); then
+    echo "Size of ${MKDTBOIMG_OUTCREATE_V2}/create.img is aligned to page_size 4096"
+else
+    echo "ERROR: Size of ${MKDTBOIMG_OUTCREATE_V2}/create.img is not aligned to page_size 4096"
+fi
+echo "=========================================================================================="
+echo "Testing image size created by 'cfg_create' (v2) 'mkdtboimg.py'"
+echo "=========================================================================================="
+cfg_v2_img_size=$(stat -c %s "${MKDTBOIMG_OUTCFG_V2}/create.img")
+if (( cfg_v2_img_size % 4096 == 0 )); then
+    echo "Size of ${MKDTBOIMG_OUTCFG_V2}/create.img is aligned to page_size 4096"
+else
+    echo "ERROR: Size of ${MKDTBOIMG_OUTCFG_V2}/create.img is not aligned to page_size 4096"
+fi
