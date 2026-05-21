@@ -167,3 +167,28 @@ if (( cfg_v2_img_size % 4096 == 0 )); then
 else
     echo "ERROR: Size of ${MKDTBOIMG_OUTCFG_V2}/create.img is not aligned to page_size 4096"
 fi
+
+echo "=========================================================================================="
+echo "Testing 8-byte alignment of DT entries in built images"
+echo "=========================================================================================="
+
+check_entries_8byte_aligned() {
+    local dump="$1"
+    local fail=0
+    while read -r offset; do
+        if (( offset % 8 != 0 )); then
+            echo "ERROR: $dump has an entry at offset ${offset} (not 8-byte aligned)"
+            fail=1
+        fi
+    done < <(awk '/^ *dt_offset *=/ { print $3 }' "$dump")
+    if (( fail )); then
+        exit 1
+    fi
+    echo "All entries in $dump are 8-byte aligned"
+}
+
+check_entries_8byte_aligned "${MKDTIMG_OUT}/create.dump"
+check_entries_8byte_aligned "${MKDTBOIMG_OUTCREATE}/create.dump"
+check_entries_8byte_aligned "${MKDTBOIMG_OUTCREATE_V2}/create.dump"
+check_entries_8byte_aligned "${MKDTBOIMG_OUTCFG}/create.dump"
+check_entries_8byte_aligned "${MKDTBOIMG_OUTCFG_V2}/create.dump"
