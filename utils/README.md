@@ -45,6 +45,9 @@ This is the layout for `dtb`/`dtbo` image:
   +---------------------------+  -
 ```
 
+Each DT/DTBO blob begins at an 8-byte-aligned offset (libfdt requirement);
+zero padding is inserted between blobs.
+
 You can find the data structure `dt_table_header` and `dt_table_entry`
 in file `src/dt_table.h`
 

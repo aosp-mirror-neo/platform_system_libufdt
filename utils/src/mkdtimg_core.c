@@ -29,6 +29,9 @@
 
 #define DEBUG 0
 
+#define DT_ENTRY_ALIGNMENT 8
+#define ALIGN_UP(x, a) (((x) + (a) - 1) & ~((a) - 1))
+
 
 struct dt_options {
   char id[OPTION_VALUE_SIZE_MAX];
@@ -382,7 +385,16 @@ static int flush_entry_to_img(struct dt_image_writer *writer) {
   struct dt_image_writer_fdt_info *fdt_info =
       search_fdt_info(writer, writer->entry_filename);
   int output_fdt = (fdt_info == NULL);
-  if (fdt_info == NULL) {
+  if (output_fdt) {
+    /* Align the start of the blob to ensure 8-byte alignment within the image. */
+    uint32_t pad =
+        ALIGN_UP(writer->dt_offset, DT_ENTRY_ALIGNMENT) - writer->dt_offset;
+    if (pad > 0) {
+      static const uint8_t zeros[DT_ENTRY_ALIGNMENT] = {0};
+      if (fseek(writer->img_fp, writer->dt_offset, SEEK_SET) != 0) return -1;
+      if (fwrite(zeros, 1, pad, writer->img_fp) != pad) return -1;
+      writer->dt_offset += pad;
+    }
     fdt_info = add_fdt_info(writer, writer->entry_filename, writer->dt_offset);
   }
 
