@@ -123,52 +123,109 @@ static struct ufdt_node *ufdt_new_node(void *fdtp, int node_offset,
   return res;
 }
 
-static struct ufdt_node *fdt_to_ufdt_tree(void *fdtp, int cur_fdt_tag_offset,
-                                          int *next_fdt_tag_offset, int cur_tag,
+// Bound max tree depth so we can allocate a fixed-size stack for iteration.
+//
+// Each entry just costs a single pointer so this will only take 512 bytes on a
+// 64-bit machine and could be increased if necessary, but devicetrees are much
+// wider than deep so 64 should be more than enough.
+#define UFDT_MAX_DEPTH 64
+
+static struct ufdt_node *fdt_to_ufdt_tree(void *fdtp,
                                           struct ufdt_node_pool *pool) {
   if (fdtp == NULL) {
     return NULL;
   }
-  uint32_t tag;
-  struct ufdt_node *res, *child_node;
 
-  res = NULL;
-  child_node = NULL;
-  tag = cur_tag;
-
-  switch (tag) {
-    case FDT_END_NODE:
-    case FDT_NOP:
-    case FDT_END:
-      break;
-
-    case FDT_PROP:
-      res = ufdt_new_node(fdtp, cur_fdt_tag_offset, pool);
-      break;
-
-    case FDT_BEGIN_NODE:
-      res = ufdt_new_node(fdtp, cur_fdt_tag_offset, pool);
-
-      do {
-        cur_fdt_tag_offset = *next_fdt_tag_offset;
-
-        tag = fdt_next_tag(fdtp, cur_fdt_tag_offset, next_fdt_tag_offset);
-        if (tag == FDT_END) {
-          dto_error("failed to get next tag\n");
-          break;
-        }
-
-        child_node = fdt_to_ufdt_tree(fdtp, cur_fdt_tag_offset,
-                                      next_fdt_tag_offset, tag, pool);
-        ufdt_node_add_child(res, child_node);
-      } while (tag != FDT_END_NODE);
-      break;
-
-    default:
-      break;
+  int start_offset = fdt_path_offset(fdtp, "/");
+  if (start_offset < 0) {
+    dto_error("Failed to locate root\n");
+    return NULL;
   }
 
-  return res;
+  int next_offset;
+  int tag = fdt_next_tag(fdtp, start_offset, &next_offset);
+  if (tag != FDT_BEGIN_NODE) {
+    dto_error("Root doesn't start with FDT_BEGIN_NODE\n");
+    return NULL;
+  }
+
+  struct ufdt_node *root = ufdt_new_node(fdtp, start_offset, pool);
+  if (root == NULL) {
+    dto_error("Failed to create node\n");
+    return NULL;
+  }
+
+  struct ufdt_node *stack[UFDT_MAX_DEPTH];
+  int depth = 0;
+  stack[depth++] = root;
+
+  int offset = next_offset;
+
+  do {
+    tag = fdt_next_tag(fdtp, offset, &next_offset);
+    if (tag < 0) {
+      dto_error("Error reading FDT tag: %d\n", tag);
+      ufdt_node_destruct(root, pool);
+      return NULL;
+    }
+    if (tag == FDT_END) {
+      dto_error("Unexpected FDT_END\n");
+      ufdt_node_destruct(root, pool);
+      return NULL;
+    }
+
+    struct ufdt_node *new_node = NULL;
+
+    switch (tag) {
+      case FDT_BEGIN_NODE:
+        new_node = ufdt_new_node(fdtp, offset, pool);
+        if (new_node == NULL) {
+          dto_error("Failed to create node\n");
+          ufdt_node_destruct(root, pool);
+          return NULL;
+        }
+
+        ufdt_node_add_child(stack[depth - 1], new_node);
+
+        if (depth >= UFDT_MAX_DEPTH) {
+          dto_error("FDT nesting depth exceeds maximum (%d)\n", UFDT_MAX_DEPTH);
+          ufdt_node_destruct(root, pool);
+          return NULL;
+        }
+        stack[depth++] = new_node;
+        break;
+
+      case FDT_PROP:
+        new_node = ufdt_new_node(fdtp, offset, pool);
+        if (new_node == NULL) {
+          dto_error("Failed to create property node\n");
+          ufdt_node_destruct(root, pool);
+          return NULL;
+        }
+        ufdt_node_add_child(stack[depth - 1], new_node);
+        break;
+
+      case FDT_END_NODE:
+        if (depth > 0) {
+          depth--;
+        } else {
+          dto_error("Unexpected FDT_END_NODE\n");
+          ufdt_node_destruct(root, pool);
+          return NULL;
+        }
+        break;
+
+      case FDT_NOP:
+        break;
+
+      default:
+        break;
+    }
+
+    offset = next_offset;
+  } while (depth > 0);
+
+  return root;
 }
 
 void ufdt_print(struct ufdt *tree) {
@@ -308,23 +365,14 @@ struct ufdt *ufdt_from_fdt(void *fdtp, size_t fdt_size,
                            struct ufdt_node_pool *pool) {
   (void)(fdt_size); /* unused parameter */
 
-  int start_offset = fdt_path_offset(fdtp, "/");
-  if (start_offset < 0) {
-    return ufdt_construct(NULL, pool);
-  }
-
-  int end_offset;
-  int start_tag = fdt_next_tag(fdtp, start_offset, &end_offset);
-
-  if (start_tag != FDT_BEGIN_NODE) {
-    return ufdt_construct(NULL, pool);
-  }
-
   struct ufdt *res_tree = ufdt_construct(fdtp, pool);
   if (res_tree == NULL) return NULL;
 
-  res_tree->root =
-      fdt_to_ufdt_tree(fdtp, start_offset, &end_offset, start_tag, pool);
+  res_tree->root = fdt_to_ufdt_tree(fdtp, pool);
+  if (res_tree->root == NULL) {
+    ufdt_destruct(res_tree, pool);
+    return ufdt_construct(NULL, pool);
+  }
 
   res_tree->phandle_table = build_phandle_table(res_tree);
 
